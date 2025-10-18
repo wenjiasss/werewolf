@@ -12,6 +12,8 @@ def get_max_bids(dict):
   max_keys = [key for key, value in dict.items() if value == max_value]
   return max_keys
 
+# Extend the GameMaster class
+
 class GameMaster:
 
   def __init__(self, state, num_threads=1, log_directory=None):
@@ -20,6 +22,7 @@ class GameMaster:
     self.num_threads = num_threads
     self.logs = [] # list of RoundLog objects
     self.log_directory = log_directory  # For auto-saving
+    self.role_win_counts = {"Werewolves": 0, "Villagers": 0}  # Track wins for each role
 
   @property # auto-updates when state.rounds changes
   def this_round(self):
@@ -28,7 +31,7 @@ class GameMaster:
   @property
   def this_round_log(self): # auto-updates when logs changes
     return self.logs[self.current_round_num]
-  
+
   # Werewolves choose a player to eliminate
   def eliminate(self):
     werewolves_alive = [w for w in self.state.werewolves if w.name in self.this_round.players]
@@ -161,7 +164,7 @@ class GameMaster:
       dialogue, log = player.debate()
       if dialogue is None:
         raise ValueError(
-            f"{next_speaker} did not return a valid dialouge from debate()."
+            f"{next_speaker} did not return a valid dialogue from debate()."
         )
 
       self.this_round_log.debate.append((next_speaker, log))
@@ -182,6 +185,16 @@ class GameMaster:
 
     for player, vote in self.this_round.votes[-1].items():
       tqdm.tqdm.write(f"{player} voted to remove {vote}")
+
+  def check_belief_action_consistency(self):
+    """Check if players' actions align with their beliefs."""
+    for player_name, vote in self.this_round.votes[-1].items():
+      player = self.state.players[player_name]
+      if player.gamestate:
+        belief = player.gamestate.get_beliefs().get(vote, 0)
+        self.this_round_log.consistency[player_name] = belief > 0.5
+      else:
+        raise ValueError(f"{player_name}.gamestate needs to be initialized.")
 
   # Conduct a vote among players to exile someone
   def run_voting(self):
@@ -301,6 +314,16 @@ class GameMaster:
     self.state.winner = self.get_winner()
     if self.state.winner:
       tqdm.tqdm.write(f"The winner is {self.state.winner}!")
+      # Update win counts for the winning role
+      if self.state.winner in self.role_win_counts:
+        self.role_win_counts[self.state.winner] += 1
+
+  def get_role_win_rates(self):
+    """Calculate and return win rates for each role."""
+    total_games = sum(self.role_win_counts.values())
+    if total_games == 0:
+      return {role: 0.0 for role in self.role_win_counts}
+    return {role: wins / total_games for role, wins in self.role_win_counts.items()}
 
   def _auto_save(self):
     """Save game state if log_directory is set."""
@@ -331,3 +354,73 @@ class GameMaster:
 
     tqdm.tqdm.write("Game is complete!")
     return self.state.winner
+
+  # Add metric calculation functions
+
+  def calculate_belief_accuracy(beliefs, true_roles):
+      """
+      Calculate belief accuracy using cross-entropy between belief distributions and true roles.
+
+      :param beliefs: Dict[str, Dict[str, float]] - Belief distributions per player.
+      :param true_roles: Dict[str, str] - True roles of players.
+      :return: float - Cross-entropy value.
+      """
+      import math
+      cross_entropy = 0.0
+      for player, belief_distribution in beliefs.items():
+          true_role = true_roles[player]
+          if true_role in belief_distribution:
+              cross_entropy -= math.log(belief_distribution[true_role] + 1e-9)  # Add epsilon to avoid log(0)
+      return cross_entropy / len(beliefs)
+
+  def calculate_precision_recall(beliefs, true_roles, target_role="Werewolf"):
+      """
+      Calculate precision and recall for a specific role (e.g., Werewolf).
+
+      :param beliefs: Dict[str, Dict[str, float]] - Belief distributions per player.
+      :param true_roles: Dict[str, str] - True roles of players.
+      :param target_role: str - Role to calculate precision/recall for.
+      :return: Tuple[float, float] - Precision and recall values.
+      """
+      true_positives = 0
+      false_positives = 0
+      false_negatives = 0
+
+      for player, belief_distribution in beliefs.items():
+          for target_player, confidence in belief_distribution.items():
+              if confidence > 0.5:  # Threshold for suspicion
+                  if true_roles[target_player] == target_role:
+                      true_positives += 1
+                  else:
+                      false_positives += 1
+
+      for target_player, role in true_roles.items():
+          if role == target_role and target_player not in [p for p, b in beliefs.items() if b.get(target_player, 0) > 0.5]:
+              false_negatives += 1
+
+      precision = true_positives / (true_positives + false_positives + 1e-9)  # Avoid division by zero
+      recall = true_positives / (true_positives + false_negatives + 1e-9)
+      return precision, recall
+
+  def calculate_average_belief_shift(belief_shifts):
+      """
+      Calculate the average belief shift caused by players.
+
+      :param belief_shifts: Dict[str, List[float]] - Belief shifts per player.
+      :return: Dict[str, float] - Average belief shift per player.
+      """
+      return {player: sum(shifts) / len(shifts) for player, shifts in belief_shifts.items() if shifts}
+
+  def calculate_belief_action_consistency(actions, beliefs):
+      """
+      Calculate belief-action consistency for players.
+
+      :param actions: Dict[str, str] - Actions taken by players (e.g., votes).
+      :param beliefs: Dict[str, Dict[str, float]] - Belief distributions per player.
+      :return: Dict[str, bool] - Whether each player's action aligns with their beliefs.
+      """
+      consistency = {}
+      for player, action in actions.items():
+          belief = beliefs[player].get(action, 0)
+          consistency[player] = belief > 0.5  # Threshold for alignment
+      return consistency

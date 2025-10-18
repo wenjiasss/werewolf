@@ -1,6 +1,7 @@
 import enum
 import json
 import random
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 from playground.lm import LmLog, generate
 from playground.prompts import ACTION_PROMPTS_AND_SCHEMAS
@@ -85,6 +86,7 @@ class GameView:
   @classmethod
   def from_json(cls, data):
     return cls(**data)
+
 
 # Represents a player in the game
 class Player(Deserializable):
@@ -568,3 +570,53 @@ class RoundLog(Deserializable):
       o.summaries.append((player[0], LmLog.from_json(player[1])))
 
     return o
+
+class BeliefTracker:
+    def __init__(self, roles):
+        """
+        Initialize the belief tracker with a set of roles.
+
+        Args:
+            roles (list): List of roles in the game (e.g., Werewolf, Villager).
+        """
+        self.beliefs = defaultdict(lambda: {role: 0 for role in roles})
+        self.cumulative_shifts = defaultdict(float)
+
+    def update_belief(self, player, role, new_value):
+        """
+        Update the belief for a player and role, tracking the magnitude of the change.
+
+        Args:
+            player (str): The name of the player.
+            role (str): The role being updated.
+            new_value (float): The new probability value for the role.
+        """
+        # Get the current value
+        current_value = self.beliefs[player][role]
+
+        # Calculate the magnitude of the change
+        change = abs(new_value - current_value)
+
+        # Update the belief
+        self.beliefs[player][role] = new_value
+
+        # Track the cumulative shift
+        self.cumulative_shifts[player] += change
+
+    def get_beliefs(self):
+        """
+        Retrieve the current belief probabilities.
+
+        Returns:
+            dict: Current belief probabilities for all players and roles.
+        """
+        return self.beliefs
+
+    def get_cumulative_shifts(self):
+        """
+        Retrieve the cumulative belief shifts for all players.
+
+        Returns:
+            dict: Cumulative belief shifts for all players.
+        """
+        return self.cumulative_shifts

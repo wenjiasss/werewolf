@@ -216,6 +216,101 @@ def generate_suspicion_scorecard(state, logs) -> Dict[str, Any]:
     return scorecard
 
 
+def calculate_influence_score(logs: List[Any], player_name: str, all_players: List[str]) -> float:
+    """
+    Calculate the influence score for a player based on game logs.
+
+    Influence score is determined by:
+    - Number of times the player's suggestions (e.g., votes, accusations) are followed.
+    - Alignment between the player's actions and the overall game outcome.
+
+    Returns a float representing the influence score.
+    """
+    influence_score = 0
+    total_actions = 0
+
+    for log in logs:
+        if not hasattr(log, 'result') or not log.result:
+            continue
+
+        result = log.result
+
+        # Check if the player made suggestions (e.g., votes, accusations)
+        if 'vote' in result and result['vote'] == player_name:
+            total_actions += 1
+            # Check if others followed the vote
+            if 'votes' in result:
+                followers = [voter for voter, target in result['votes'].items() if target == player_name]
+                influence_score += len(followers)
+
+        # Additional metrics can be added here (e.g., alignment with outcomes)
+
+    return influence_score / total_actions if total_actions > 0 else 0.0
+
+
+def calculate_internal_scorecards(logs: List[Any], all_players: List[str]) -> Dict[str, Dict[str, float]]:
+    """
+    Calculate internal scorecards for each player, where each player rates others on a sliding scale.
+
+    Returns a dictionary where:
+    - Keys are player names.
+    - Values are dictionaries mapping other players to their scores.
+    """
+    scorecards = {player: {other: 0.0 for other in all_players if other != player} for player in all_players}
+
+    for log in logs:
+        if not hasattr(log, 'result') or not log.result:
+            continue
+
+        result = log.result
+
+        # Example: Extract suspicion or trust signals from logs
+        for player in all_players:
+            if player in result:
+                for other_player, score in result[player].get('ratings', {}).items():
+                    if other_player in scorecards[player]:
+                        scorecards[player][other_player] += score
+
+    return scorecards
+
+
+def calculate_suspicion_scores(logs: List[Any], all_players: List[str]) -> Dict[str, float]:
+    """
+    Calculate percentage-wise suspicion scores for each player.
+
+    Returns a dictionary where:
+    - Keys are player names.
+    - Values are suspicion scores (0.0 to 1.0).
+    """
+    suspicion_counts = {player: 0 for player in all_players}
+    total_mentions = {player: 0 for player in all_players}
+
+    for log in logs:
+        if not hasattr(log, 'result') or not log.result:
+            continue
+
+        result = log.result
+
+        # Analyze suspicion signals in the log
+        for player in all_players:
+            if player in result:
+                if 'suspicious_of' in result[player]:
+                    for suspicious_player in result[player]['suspicious_of']:
+                        if suspicious_player in suspicion_counts:
+                            suspicion_counts[suspicious_player] += 1
+                total_mentions[player] += 1
+
+    # Calculate percentage-wise suspicion scores
+    suspicion_scores = {}
+    for player in all_players:
+        if total_mentions[player] > 0:
+            suspicion_scores[player] = suspicion_counts[player] / total_mentions[player]
+        else:
+            suspicion_scores[player] = 0.0
+
+    return suspicion_scores
+
+
 def save_analysis(state, logs, directory: str):
     """Save analysis and suspicion scorecard to a file."""
     scorecard = generate_suspicion_scorecard(state, logs)

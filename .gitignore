@@ -43,11 +43,13 @@ env.bak/
 venv.bak/
 
 # Secrets
+secret.txt
 playground/secret.txt
 
 # Logs
 logs/
 *.log
+output_metrics/
 
 # OS
 .DS_Store

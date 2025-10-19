@@ -1,4 +1,3 @@
-from typing import Any
 import yaml
 from abc import ABC
 from abc import abstractmethod
@@ -21,7 +20,6 @@ def parse_json_markdown(text: str):
         if hasattr(c, "lang") and c.lang.lower() == "json":
             json_str = c.children[0].children
             return parse_json_str(json_str)
-
     return None
 
 

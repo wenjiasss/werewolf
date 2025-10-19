@@ -1,22 +1,23 @@
 import random
 import traceback
-from typing import List, Tuple
 import itertools
 import pandas as pd
 import os
 import datetime
 from absl import flags
 import tqdm
-from playground import game_logging as logging
-from playground import game
-from playground.model import Doctor
-from playground.model import SEER
-from playground.model import Seer
-from playground.model import State
-from playground.model import Villager
-from playground.model import WEREWOLF
-from playground.model import Werewolf
-from playground.config import get_player_names
+import uuid
+from game import game_logging as logging
+from game import game
+from model.model import Doctor
+from model.model import SEER
+from model.model import Seer
+from model.model import State
+from model.model import Villager
+from model.model import WEREWOLF
+from model.model import Werewolf
+from game.config import get_player_names
+from analyzers import analysis
 
 _RUN_GAME = flags.DEFINE_boolean("run", False, "Runs a single game.")
 _RESUME = flags.DEFINE_boolean("resume", False, "Resumes games.")
@@ -34,38 +35,25 @@ _ARENA = flags.DEFINE_boolean(
     "arena", False, "Only run games using different models for villagers and werewolves"
 )
 _THREADS = flags.DEFINE_integer("threads", 2, "Number of threads to run.")
-DEFAULT_WEREWOLF_MODELS = ["flash", "pro1.5"]
-DEFAULT_VILLAGER_MODELS = ["flash", "pro1.5"]
+DEFAULT_WEREWOLF_MODELS = ["gemma", "llama3"]
+DEFAULT_VILLAGER_MODELS = ["gemma", "llama3"]
 RESUME_DIRECTORIES = []
 
 model_to_id = {
-    # Ollama models (local)
-    "llama3": "llama3.2:3b",            # Llama 3.2 3B - FAST! ⚡
-    "llama3-8b": "llama3:8b",           # Llama 3 8B (slower but smarter)
-    "qwen": "qwen3:8b",                 # Qwen 3 8B (you have this!)
-    "phi": "phi3:mini",                 # Small and efficient
-    "gemma": "gemma2:2b",               # Google's small model
-    "mistral": "mistral:7b",            # Larger but powerful
-    
-    # Cloud models (if needed later)
-    "pro1.5": "gemini-1.5-pro-preview-0514",
-    "flash": "gemini-1.5-flash-001",
-    "pro1": "gemini-pro",
-    "gpt4": "gpt-4-turbo-2024-04-09",
-    "gpt4o": "gpt-4o-2024-05-13",
-    "gpt3.5": "gpt-3.5-turbo-0125",
+    "llama3-8b": "llama3:8b",           
+    "qwen": "qwen3:8b",         
 }
 
-# Assigns roles to players and initializes their game view.
+# Assigns roles to players and initializes their game view
 def initialize_players(villager_model, werewolf_model):
 
     player_names = get_player_names()
     random.shuffle(player_names)
 
-    seer = Seer(name=player_names.pop(), model=villager_model, personality="You are cunning.")
-    doctor = Doctor(name=player_names.pop(), model=villager_model, personality="You are a doctor.")
-    werewolves = [Werewolf(name=player_names.pop(), model=werewolf_model) for _ in range(2)]
-    villagers = [Villager(name=name, model=villager_model) for name in player_names]
+    seer = Seer(name=player_names.pop(), model=villager_model, personality="You are cunning.") # always one seer
+    doctor = Doctor(name=player_names.pop(), model=villager_model, personality="You are a doctor.") # always one doctor
+    werewolves = [Werewolf(name=player_names.pop(), model=werewolf_model) for _ in range(2)] # always two werewolves
+    villagers = [Villager(name=name, model=villager_model) for name in player_names] # remaining players are villagers
 
     # Initialize game view for all players
     for player in [seer, doctor] + werewolves + villagers:
@@ -175,34 +163,26 @@ def resume_games(directories):
     )
 
 
-def run_game(werewolf_model, villager_model):
-    """Runs a single game of Werewolf.
-
-    Returns: (winner, log_dir)
-    """
-    from playground import analysis
-    
+def run_game(werewolf_model, villager_model, num_threads=2):    
     seer, doctor, villagers, werewolves = initialize_players(villager_model, werewolf_model)
-    session_id = "10"  # You might want to make this unique per game
+    session_id = str(uuid.uuid4())
     state = State(villagers=villagers, werewolves=werewolves, seer=seer, doctor=doctor, session_id=session_id)
     
     # Create log directory upfront
     log_directory = logging.log_directory()
     
     # Pass log_directory to GameMaster for auto-saving
-    gamemaster = game.GameMaster(state, num_threads=_THREADS.value, log_directory=log_directory)
+    gamemaster = game.GameMaster(state, num_threads=num_threads, log_directory=log_directory)
     winner = None
 
     try:
         # Save initial state
         logging.save_game(state, gamemaster.logs, log_directory)
         print(f"Game started. Logs auto-saving to: {log_directory}")
-        print(f"You can press Ctrl+C to stop at any time and the progress will be saved.\n")
-        
         winner = gamemaster.run_game()
     except KeyboardInterrupt:
-        print("\n\n⚠️ Game interrupted by user. Saving current state...")
-        state.error_message = "Game interrupted by user (Ctrl+C)"
+        print("\n\nGame interrupted. Saving current state...")
+        state.error_message = "Game interrupted"
     except Exception as e:
         state.error_message = traceback.format_exc()
         print(f"Error encountered during game: {e}")
@@ -215,7 +195,7 @@ def run_game(werewolf_model, villager_model):
         try:
             analysis.save_analysis(state, gamemaster.logs, log_directory)
         except Exception as e:
-            print(f"Warning: Could not generate analysis: {e}")
+            print(f"Could not generate analysis: {e}")
     
     return winner, log_directory
 
@@ -230,7 +210,7 @@ def run():
     if _RUN_GAME.value:
         villager_model, werewolf_model = model_combinations[0]
         print(f"Villagers: {villager_model} versus Werwolves:  {werewolf_model}")
-        run_game(werewolf_model=werewolf_model, villager_model=villager_model)
+        run_game(werewolf_model=werewolf_model, villager_model=villager_model, num_threads=_THREADS.value)
         
     elif _EVAL.value:
         results = []
@@ -246,6 +226,7 @@ def run():
                 winner, log_dir = run_game(
                     werewolf_model=werewolf_model,
                     villager_model=villager_model,
+                    num_threads=_THREADS.value,
                 )
                 results.append([villager_model, werewolf_model, winner, log_dir])
 
@@ -257,7 +238,7 @@ def run():
 
         pacific_timezone = datetime.timezone(datetime.timedelta(hours=-8))
         timestamp = datetime.datetime.now(pacific_timezone).strftime("%Y%m%d_%H%M%S")
-        csv_file = f"{os.getcwd()}/logs/eval_results_{timestamp}.csv"
+        csv_file = f"{os.getcwd()}/output_metrics/eval_results_{timestamp}.csv"
         df.to_csv(csv_file)
         print(f"Wrote eval results to {csv_file}")
 

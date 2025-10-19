@@ -3,7 +3,7 @@ import json
 import requests
 from typing import Dict, Any
 
-
+# Moderate temperature for more consistent results
 def generate(model: str, prompt: str, response_schema: Dict[str, Any], temperature: float = 1.0, **kwargs) -> str:
     """Generate text using Ollama local API"""
     

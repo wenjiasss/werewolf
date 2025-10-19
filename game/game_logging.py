@@ -1,26 +1,19 @@
 import datetime
 import json
 import os
-from typing import List, Tuple
-from playground.model import RoundLog, State, to_dict
+from model.model import RoundLog, State, to_dict
 
+# Creates a timestamped directory path for saving game logs
 def log_directory():
     pacific_timezone = datetime.timezone(datetime.timedelta(hours=-8))
-    timestamp = datetime.datetime.now(pacific_timezone).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.datetime.now(pacific_timezone).strftime("%Y-%m-%d_%H-%M-%S")
     session_id = f"session_{timestamp}"
-    directory = f"{os.getcwd()}/logs/{session_id}"
+    directory = f"{os.getcwd()}/output_metrics/logs/{session_id}"
     return directory
 
+# Load a game from saved JSON files
 def load_game(directory):
-    """Load a game from a file and convert its data to game objects.
-
-    Args:
-      directory: where the game log is stored
-
-    Returns:
-      State: An instance of the State class populated with the game data.
-    """
-
+    # Try to load partial game first (for incomplete games), fallback to complete
     partial_game_state_file = f"{directory}/game_partial.json"
     complete_game_state_file = f"{directory}/game_complete.json"
     log_file = f"{directory}/game_logs.json"
@@ -42,18 +35,8 @@ def load_game(directory):
     return (state, logs)
 
 
+# Save the current game state to JSON files
 def save_game(state, logs, directory):
-    """Save the current game state to a specified file.
-
-    This function serializes the game state to JSON and writes it to the
-    specified file. If an error message is provided, it adds the error
-    message to the current round of the game state before saving.
-
-    Args:
-      state: Instance of the `State` class.
-      logs: Logs of the  game.
-      directory: where to save the game.
-    """
     os.makedirs(directory, exist_ok=True)
 
     partial_game_state_file = f"{directory}/game_partial.json"
@@ -61,7 +44,7 @@ def save_game(state, logs, directory):
         game_file = partial_game_state_file
     else:
         game_file = f"{directory}/game_complete.json"
-        # Remove the partial game file if it exists
+        # Clean up partial file if game completed successfully
         if os.path.exists(partial_game_state_file):
             os.remove(partial_game_state_file)
 

@@ -6,6 +6,8 @@ import pandas as pd
 from pathlib import Path
 from collections import defaultdict
 from game import game_logging
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Finds the N most recent game sessions
 def find_recent_sessions(n=None):
@@ -234,6 +236,46 @@ def save_detailed_survival(results, output_dir):
     
     print(f"Detailed survival data saved to: {output_file}")
 
+# Visualizes win rates as a bar chart
+def visualize_win_rates(results, output_dir):
+    teams = ['Villagers', 'Werewolves']
+    win_counts = [results['win_rates'][team] for team in teams]
+    total_games = results['total_games']
+    win_rates = [(wins / total_games * 100) if total_games > 0 else 0 for wins in win_counts]
+
+    plt.figure(figsize=(8, 6))
+    sns.barplot(x=teams, y=win_rates, palette='viridis')
+    plt.title('Win Rates by Team')
+    plt.ylabel('Win Rate (%)')
+    plt.xlabel('Team')
+    plt.ylim(0, 100)
+    plt.savefig(output_dir / 'win_rates.png')
+    plt.close()
+    print(f"Win rate visualization saved to: {output_dir / 'win_rates.png'}")
+
+# Visualizes survival rates by role across rounds
+def visualize_survival_rates(results, output_dir):
+    rows = []
+    for role, rounds_data in results['role_survival'].items():
+        for round_idx, survival_list in rounds_data.items():
+            alive_count = sum(survival_list)
+            total_count = len(survival_list)
+            survival_rate = (alive_count / total_count * 100) if total_count > 0 else 0
+            rows.append({'role': role, 'round': round_idx, 'survival_rate': survival_rate})
+
+    df = pd.DataFrame(rows)
+
+    plt.figure(figsize=(10, 6))
+    sns.lineplot(data=df, x='round', y='survival_rate', hue='role', marker='o')
+    plt.title('Survival Rates by Role Across Rounds')
+    plt.ylabel('Survival Rate (%)')
+    plt.xlabel('Round')
+    plt.ylim(0, 100)
+    plt.legend(title='Role')
+    plt.savefig(output_dir / 'survival_rates.png')
+    plt.close()
+    print(f"Survival rate visualization saved to: {output_dir / 'survival_rates.png'}")
+
 # Prints summary statistics to console
 def print_summary(results):
     print("\n" + "="*70)
@@ -283,7 +325,7 @@ def main():
         session_dirs = [Path(d) for d in sys.argv[1:]]
     else:
         # Default: analyze 3 most recent
-        session_dirs = find_recent_sessions(3)
+        session_dirs = find_recent_sessions(10)
         print(f"Analyzing 3 most recent games (use --recent N to change)")
     
     if not session_dirs:
@@ -309,7 +351,11 @@ def main():
     save_survival_rates(results, output_dir)
     save_game_summary(results, output_dir)
     save_detailed_survival(results, output_dir)
-    
+
+    # Generate visualizations
+    visualize_win_rates(results, output_dir)
+    visualize_survival_rates(results, output_dir)
+
     # Print summary
     print_summary(results)
     
